@@ -1,17 +1,18 @@
-use std::{collections::HashMap, io::{BufRead, BufReader, BufWriter, Error, Write}, net::{TcpListener, TcpStream}};
+use std::{collections::HashMap, io::{BufRead, BufReader, BufWriter, Error, Write}, net::{TcpListener, TcpStream}, thread};
 
 fn main() {
     let listener = TcpListener::bind("127.0.0.1:4221").unwrap();
 
     for stream in listener.incoming() {
-        println!("accepted new connection");
+        thread::spawn(|| {
+            println!("accepted new connection");
 
-        if let Err(e) = stream.and_then(|mut s| handle(&mut s)) {
-            println!("Error: {}", e);
-            break;
-        }
+            if let Err(e) = stream.and_then(|mut s| handle(&mut s)) {
+                println!("Error: {}", e);
+            }
 
-        println!("Request completed");
+            println!("Request completed");
+        });
     }
 }
 
