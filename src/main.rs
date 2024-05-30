@@ -9,6 +9,16 @@ use itertools::Itertools;
 use server::Server;
 use response::ResponseCode;
 
+fn get_arg(arg: &'static str) -> Option<String> {
+    let arglist = env::args().collect_vec();
+    let mut args = arglist[1..].chunks(2);
+
+    args
+    .find(|&pair| pair.first() == Some(&arg.to_string()))
+    .and_then(|pair| pair.last())
+    .cloned()
+}
+
 fn main() {
     Server::new(|router| {
         router.register_handler(|req| {
@@ -44,39 +54,20 @@ fn main() {
 
         router.register_path("files", |router| {
             router.register_catchall(|path, req| {
-                let arglist = env::args().collect_vec();
-                let mut args = arglist[1..].chunks(2);
-
-                let Some(dir) = args
-                .find(|&pair| pair.first() == Some(&"--directory".to_string()))
-                .and_then(|pair| pair.last()) else {
-                    return req.build_response(
-                        ResponseCode::NotFound,
-                        None,
-                        None,
-                        None
-                    )
+                let Some(dir) = get_arg("--directory") else {
+                    return req.not_found()
                 };
 
-                match fs::read_to_string(format!("{}/{}", &dir, path)) {
-                    Ok(file) => {
-                        req.build_response(
-                            ResponseCode::OK,
-                            Some("application/octet-stream".to_string()),
-                            None,
-                            Some(file)
-                        )
-                    }
+                let Ok(file) = fs::read_to_string(format!("{}/{}", &dir, path)) else {
+                    return req.not_found()
+                };
 
-                    Err(_) => {
-                        req.build_response(
-                            ResponseCode::NotFound,
-                            None,
-                            None,
-                            None
-                        )
-                    }
-                }
+                req.build_response(
+                    ResponseCode::OK,
+                    Some("application/octet-stream".to_string()),
+                    None,
+                    Some(file)
+                )
             });
         });
     }).listen();

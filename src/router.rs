@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use itertools::Itertools;
 
-use crate::{request::Request, response::{Response, ResponseCode}};
+use crate::{request::Request, response::Response};
 
 #[derive(Clone)]
 pub struct Router {
@@ -42,29 +42,20 @@ impl Router {
         .filter(|segment| !segment.is_empty())
         .collect_vec();
 
-        match self._handle(path.as_slice(), &request) {
-            None => return not_found(request),
+        match self.recursive_handle(path.as_slice(), &request) {
+            None => return request.not_found(),
             Some(response) => return response,
         }
     }
 
-    fn _handle(&self, path: &[&str], request: &Request) -> Option<Response> {
+    fn recursive_handle(&self, path: &[&str], request: &Request) -> Option<Response> {
         if let Some(catchall) = self.catchall {
             return Some(catchall(path.join("/"), request));
         }
 
         match path.split_first() {
-            Some((head, tail)) => self.subrouters.get(*head)?._handle(tail, request),
+            Some((&head, tail)) => self.subrouters.get(head)?.recursive_handle(tail, request),
             None => return Some(self.root?(request))
         }
     }
-}
-
-fn not_found(request: Request) -> Response {
-    request.build_response(
-        ResponseCode::NotFound,
-        None,
-        None,
-        None
-    )
 }

@@ -47,4 +47,13 @@ impl Request {
             content
         }
     }
+
+    pub fn not_found(&self) -> Response {
+        self.build_response(
+            ResponseCode::NotFound,
+            None,
+            None,
+            None
+        )
+    }
 }
