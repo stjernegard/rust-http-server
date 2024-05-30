@@ -64,6 +64,7 @@ fn not_found(request: Request) -> Response {
     request.build_response(
         ResponseCode::NotFound,
         None,
+        None,
         None
     )
 }

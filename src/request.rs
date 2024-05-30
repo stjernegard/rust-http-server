@@ -34,10 +34,10 @@ impl Request {
         })
     }
 
-    pub fn build_response(&self, code: ResponseCode, headers: Option<HashMap<String, String>>, content: Option<String>) -> Response {
+    pub fn build_response(&self, code: ResponseCode, content_type: Option<String>, headers: Option<HashMap<String, String>>, content: Option<String>) -> Response {
         let mut headers = headers.unwrap_or_else(HashMap::new);
         if let Some(ref content) = content {
-            headers.insert("Content-Type".to_string(), "text/plain".to_string());
+            headers.insert("Content-Type".to_string(), content_type.unwrap_or("text/plain".to_string()));
             headers.insert("Content-Length".to_string(), content.len().to_string());
         }
         Response {
