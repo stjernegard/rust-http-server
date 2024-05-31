@@ -4,63 +4,72 @@ use itertools::Itertools;
 
 use crate::{request::Request, response::Response};
 
-pub struct Router {
-    root: Option<fn(&Request) -> Response>,
-    catchall: Option<fn(String, &Request) -> Response>,
-    subrouters: HashMap<&'static str, Router>,
+pub struct Router<'a> {
+    paths: HashMap<&'static str, Routable<'a>>
 }
 
-impl Router {
-    pub fn new() -> Self {
-        Router {
-            root: None,
-            catchall: None,
-            subrouters: HashMap::new(),
-        }
-    }
-
-    pub fn register_handler(&mut self, f: fn(&Request) -> Response) {
-        self.root = Some(f);
-    }
-
-    pub fn register_catchall(&mut self, f: fn(String, &Request) -> Response) {
-        self.catchall = Some(f);
-    }
-
-    pub fn register_path(&mut self, route: &'static str, f: fn(&mut Router) -> ()) {
-        let mut router = Self::new();
-        f(&mut router);
-        self.subrouters.insert(route, router);
-    }
+struct Route<'a> {
+    handler: Box<dyn 'a + Fn(&str, &Request) -> Response>,
 }
 
-impl Router {
-    pub fn handle(&self, request: Request) -> Response {
+enum Routable<'a> {
+    Router(Router<'a>),
+    Route(Route<'a>),
+}
 
-        let path = request.path.split("/")
-        .filter(|segment| !segment.is_empty())
+impl Router<'_> {
+    pub fn new<'a>() -> Router<'a> {
+        Router { paths: HashMap::new() }
+    }
+
+    pub fn handle(&self, request: &Request) -> Response {
+        let path_components = request.path.split("/")
+        .filter(|&segment| !segment.is_empty())
         .collect_vec();
 
-        match self.recursive_handle(path.as_slice(), &request) {
-            None => return request.not_found(),
-            Some(response) => return response,
-        }
+        self.handle_recursive(path_components, request)
     }
 
-    fn recursive_handle(&self, path: &[&str], request: &Request) -> Option<Response> {
-        if let Some(catchall) = &self.catchall {
-            return Some(catchall(path.join("/"), request));
+    fn handle_recursive(&self, path: Vec<&str>, request: &Request) -> Response {
+        if path.is_empty() || path == ["/"] {
+            if let Some(Routable::Route(route)) = self.paths.get("/") {
+                return route.handle("/", request);
+            }
         }
 
-        if let Some((&head, tail)) = path.split_first() {
-            return self.subrouters.get(head)?.recursive_handle(tail, request);
+        if let Some(Routable::Route(route)) = self.paths.get("*") {
+            return route.handle(&path.join("/"), request);
         }
 
-        if let Some(root) = &self.root {
-            let response = root(request);
-            return Some(response);
-        }
+        let Some((&head, tail)) = path.split_first() else {
+            return request.not_found();
+        };
 
-        None
+        let Some(&ref routable) = self.paths.get(head) else {
+            return request.not_found()
+        };
+
+        match routable {
+            Routable::Route(route) => route.handle(head, request),
+            Routable::Router(router) => router.handle_recursive(tail.to_vec(), request)
+        }
+    }
+}
+
+impl Route<'_> {
+    fn handle(&self, path: &str, request: &Request) -> Response {
+        (self.handler)(path, &request)
+    }
+}
+
+impl<'a> Router<'a> {
+    pub fn register_handler(&mut self, path: &'static str, f: impl Fn(&str, &Request) -> Response + 'a) {
+        self.paths.insert(path, Routable::Route(Route { handler: Box::new(f) }));
+    }
+
+    pub fn register_group(&mut self, path: &'static str, f: impl Fn(&mut Router) -> ()) {
+        let mut router = Self::new();
+        f(&mut router);
+        self.paths.insert(path, Routable::Router(router));
     }
 }

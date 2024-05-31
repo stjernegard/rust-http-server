@@ -1,17 +1,17 @@
-use std::io::Error;
-use std::io::Write;
+use std::io::{Result, Write};
 
 use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 
-use crate::{request::Request, response::Response, router::Router};
+use crate::router::Router;
+use crate::{request::Request, response::Response};
 
-pub struct Server {
-    pub router: Router,
+pub struct Server<'a> {
+    pub router: Router<'a>
 }
 
-impl Server {
-    pub fn new(f: fn(&mut Router) -> ()) -> Server {
+impl Server<'_> {
+    pub fn new<'a>(f: fn(&mut Router) -> ()) -> Server<'a> {
         let mut router = Router::new();
         f(&mut router);
         Server { router }
@@ -40,7 +40,7 @@ impl Server {
                 return
             };
 
-            let response = self.router.handle(request);
+            let response = self.router.handle(&request);
 
             if let Err(error) = write_response(&mut stream, response).await {
                 println!("Error: {}", error);
@@ -50,18 +50,19 @@ impl Server {
     }
 }
 
-async fn write_response(stream: &mut TcpStream, response: Response) -> Result<(), Error> {
+async fn write_response(stream: &mut TcpStream, response: Response) -> Result<()> {
     let mut buf = Vec::<u8>::new();
 
     writeln!(buf, "{} {}", response.version, response.code)?;
-    for (key, value) in response.headers {
+    for (key, value) in &response.headers {
         writeln!(buf, "{}: {}", key, value)?;
     }
-    write!(buf, "\r\n")?;
-    if let Some(content) = response.content {
-        write!(buf, "{}", content)?;
+    if !response.headers.is_empty() {
+        write!(buf, "\r\n")?;
     }
-    write!(buf, "\r\n\r\n")?;
+    if let Some(content) = response.content {
+        writeln!(buf, "{}\r\n", content)?;
+    }
 
     stream.write_all(&buf).await
 }

@@ -9,7 +9,7 @@ use itertools::Itertools;
 use server::Server;
 use response::ResponseCode;
 
-fn get_arg(arg: &'static str) -> Option<String> {
+fn get_arg(arg: &str) -> Option<String> {
     let arglist = env::args().collect_vec();
     let mut args = arglist[1..].chunks(2);
 
@@ -22,7 +22,7 @@ fn get_arg(arg: &'static str) -> Option<String> {
 #[tokio::main]
 async fn main() {
     Server::new(|router| {
-        router.register_handler(|req| {
+        router.register_handler("/", |_, req| {
             req.build_response(
                 ResponseCode::OK,
                 None,
@@ -31,45 +31,42 @@ async fn main() {
             )
         });
 
-        router.register_path("user-agent", |router| {
-            router.register_handler(|req| {
+        router.register_handler("user-agent", |_, req| {
+            req.build_response(
+                ResponseCode::OK,
+                None,
+                None,
+                req.headers.get("User-Agent").cloned()
+            )
+        });
+
+        router.register_group("echo", |group| {
+            group.register_handler("*", |path, req| {
                 req.build_response(
                     ResponseCode::OK,
                     None,
                     None,
-                    req.headers.get("User-Agent").cloned()
+                    Some(path.to_string())
                 )
             });
         });
 
-        router.register_path("echo", |router| {
-            router.register_catchall(|path, req| {
-                req.build_response(
-                    ResponseCode::OK,
-                    None,
-                    None,
-                    Some(path)
-                )
+        if let Some(dir) = get_arg("--directory") {
+            router.register_group("files", |group| {
+                let dir = dir.clone();
+                group.register_handler("*", move |path, req| {
+                    let Ok(file) = fs::read_to_string(format!("{}/{}", dir, path)) else {
+                        return req.not_found()
+                    };
+
+                    req.build_response(
+                        ResponseCode::OK,
+                        Some("application/octet-stream".to_string()),
+                        None,
+                        Some(file)
+                    )
+                });
             });
-        });
-
-        router.register_path("files", |router| {
-            router.register_catchall(|path, req| {
-                let Some(dir) = get_arg("--directory") else {
-                    return req.not_found()
-                };
-
-                let Ok(file) = fs::read_to_string(format!("{}/{}", &dir, path)) else {
-                    return req.not_found()
-                };
-
-                req.build_response(
-                    ResponseCode::OK,
-                    Some("application/octet-stream".to_string()),
-                    None,
-                    Some(file)
-                )
-            });
-        });
+        }
     }).listen().await;
 }
