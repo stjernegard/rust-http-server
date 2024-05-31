@@ -4,7 +4,6 @@ use itertools::Itertools;
 
 use crate::{request::Request, response::Response};
 
-#[derive(Clone)]
 pub struct Router {
     root: Option<fn(&Request) -> Response>,
     catchall: Option<fn(String, &Request) -> Response>,
@@ -49,13 +48,19 @@ impl Router {
     }
 
     fn recursive_handle(&self, path: &[&str], request: &Request) -> Option<Response> {
-        if let Some(catchall) = self.catchall {
+        if let Some(catchall) = &self.catchall {
             return Some(catchall(path.join("/"), request));
         }
 
-        match path.split_first() {
-            Some((&head, tail)) => self.subrouters.get(head)?.recursive_handle(tail, request),
-            None => return Some(self.root?(request))
+        if let Some((&head, tail)) = path.split_first() {
+            return self.subrouters.get(head)?.recursive_handle(tail, request);
         }
+
+        if let Some(root) = &self.root {
+            let response = root(request);
+            return Some(response);
+        }
+
+        None
     }
 }

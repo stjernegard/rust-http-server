@@ -1,4 +1,8 @@
-use std::{io::{BufWriter, Error, Write}, net::{TcpListener, TcpStream}, thread};
+use std::io::Error;
+use std::io::Write;
+
+use tokio::io::AsyncWriteExt;
+use tokio::net::{TcpListener, TcpStream};
 
 use crate::{request::Request, response::Response, router::Router};
 
@@ -13,8 +17,8 @@ impl Server {
         Server { router }
     }
 
-    pub fn listen(&self) {
-        let listener = match TcpListener::bind("127.0.0.1:4221") {
+    pub async fn listen(&self) {
+        let listener = match TcpListener::bind("127.0.0.1:4221").await {
             Ok(listener) => listener,
             Err(error) => {
                 println!("Failed binding to port: {}", error);
@@ -22,43 +26,42 @@ impl Server {
             },
         };
 
-        for stream in listener.incoming() {
-            let router = self.router.clone();
-            thread::spawn(move || {
-                let mut stream = match stream {
-                    Ok(stream) => stream,
-                    Err(error) => {
-                        println!("Error: {}", error);
-                        return
-                    },
-                };
-
-                let Some(request) = Request::new(&stream) else {
-                    println!("Error: parsing request failed");
-                    return
-                };
-
-                let response = router.handle(request);
-
-                if let Err(error) = write_response(&mut stream, response) {
-                    println!("Error: {}", error);
+        loop {
+            let (mut stream, _) = match listener.accept().await {
+                Ok(result) => result,
+                Err(error) => {
+                    println!("Failed to accept tcp stream: {}", error);
                     return
                 }
-            });
+            };
+
+            let Some(request) = Request::new(&mut stream).await else {
+                println!("Error: parsing request failed");
+                return
+            };
+
+            let response = self.router.handle(request);
+
+            if let Err(error) = write_response(&mut stream, response).await {
+                println!("Error: {}", error);
+                return
+            }
         }
     }
 }
 
-fn write_response(stream: &mut TcpStream, response: Response) -> Result<(), Error> {
-    let mut writer = BufWriter::new(stream);
-    writer.write_fmt(format_args!("{} {}\r\n", response.version, response.code))?;
-    for (key, value) in response.headers {
-        writer.write_fmt(format_args!("{}: {}\r\n", key, value))?;
-    }
-    if let Some(content) = response.content {
-        writer.write_fmt(format_args!("\r\n{}", content))?;
-    }
-    writer.write(b"\r\n\r\n")?;
+async fn write_response(stream: &mut TcpStream, response: Response) -> Result<(), Error> {
+    let mut buf = Vec::<u8>::new();
 
-    writer.flush()
+    writeln!(buf, "{} {}", response.version, response.code)?;
+    for (key, value) in response.headers {
+        writeln!(buf, "{}: {}", key, value)?;
+    }
+    write!(buf, "\r\n")?;
+    if let Some(content) = response.content {
+        write!(buf, "{}", content)?;
+    }
+    write!(buf, "\r\n\r\n")?;
+
+    stream.write_all(&buf).await
 }

@@ -19,7 +19,8 @@ fn get_arg(arg: &'static str) -> Option<String> {
     .cloned()
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     Server::new(|router| {
         router.register_handler(|req| {
             req.build_response(
@@ -70,5 +71,5 @@ fn main() {
                 )
             });
         });
-    }).listen();
+    }).listen().await;
 }
